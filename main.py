@@ -11,8 +11,6 @@ load_dotenv()
 
 import track_logger
 import find_repeat_songs
-from UpdatePlaylist import UpdatePlaylist
-from OrganizePlaylist import OrganizePlaylist
 import create_on_repeat
 
 def authenticate():

@@ -1,4 +1,0 @@
-
-
-class UpdatePlaylist:
-    pass
