@@ -1,5 +1,6 @@
 # scheduler_detailed.py
 import schedule
+import time  
 import logging
 import sys
 import os
@@ -69,7 +70,7 @@ class SpotifyScheduler:
         """Check if the tracking run actually added new data"""
         try:
             if os.path.exists(TRACK_LOG_FILE):
-                with open(TRACK_LOG_FILE, 'r') as f:
+                with open(TRACK_LOG_FILE, 'r', encoding='utf-8') as f:
                     lines = len(f.readlines())
                 self.logger.info(f"📊 Current track count: {lines-1}")  # -1 for header
         except Exception as e:
@@ -94,28 +95,23 @@ class SpotifyScheduler:
         print(f"   Successful: {self.successful_runs}")
         print(f"   Failed: {self.failed_runs}")
         print(f"   Success rate: {success_rate:.1f}%")
-        print(f"   Next run: {schedule.next_run()}")
+        
+        try:
+            next_run = schedule.next_run()
+            if next_run:
+                print(f"   Next run: {next_run}")
+            else:
+                print("   Next run: No jobs scheduled")
+        except Exception:
+            print("   Next run: Unable to determine")
     
     def setup_schedules(self):
-        """Configure different scheduling patterns"""
+        """Configure simple scheduling pattern"""
+        # Clear any existing schedules
+        schedule.clear()
         
-        # OPTION 1: Simple - Every 30 minutes
+        # Simple: Every 30 minutes
         schedule.every(30).minutes.do(self.run_tracker).tag('regular')
-        
-        # OPTION 2: Smart scheduling based on typical usage patterns
-        
-        # More frequent during typical listening hours
-        schedule.every(15).minutes.do(self.run_tracker).tag('peak_hours')
-        
-        # Less frequent during sleep hours (12 AM - 7 AM)
-        schedule.every().hour.do(self.run_tracker).tag('off_hours')
-        
-        # OPTION 3: Workday vs Weekend patterns
-        # Weekdays: Every 20 minutes during work hours
-        schedule.every(20).minutes.do(self.run_tracker).tag('workday')
-        
-        # Weekends: Every 30 minutes
-        schedule.every(30).minutes.do(self.run_tracker).tag('weekend')
         
         self.logger.info("📅 Scheduling configured:")
         for job in schedule.get_jobs():
@@ -162,43 +158,57 @@ class SmartSpotifyScheduler(SpotifyScheduler):
         """Analyze existing data to determine when user typically listens"""
         try:
             if not os.path.exists(TRACK_LOG_FILE):
+                self.logger.info("📊 No existing data found, using default listening hours")
                 return list(range(7, 24))  # Default: 7 AM to 11 PM
             
-            import pandas as pd
-            df = pd.read_csv(TRACK_LOG_FILE)
-            
-            if df.empty:
+            # Try to import pandas, but gracefully handle if not available
+            try:
+                import pandas as pd
+            except ImportError:
+                self.logger.warning("📊 Pandas not available for pattern detection, using defaults")
                 return list(range(7, 24))
             
-            # Convert time to hour
-            df['hour'] = pd.to_datetime(df['Time'], format='%H:%M:%S').dt.hour
+            df = pd.read_csv(TRACK_LOG_FILE)
             
-            # Find hours with listening activity
-            active_hours = df['hour'].value_counts()
+            if df.empty or len(df) < 10:  # Need some data for meaningful analysis
+                self.logger.info("📊 Not enough data for pattern analysis, using defaults")
+                return list(range(7, 24))
             
-            # Hours with more than 5% of total listening
-            threshold = len(df) * 0.05
-            listening_hours = active_hours[active_hours > threshold].index.tolist()
+            # Convert time to hour (assuming Time column exists)
+            if 'Time' in df.columns:
+                df['hour'] = pd.to_datetime(df['Time'], format='%H:%M:%S', errors='coerce').dt.hour
+                
+                # Find hours with listening activity
+                active_hours = df['hour'].value_counts()
+                
+                # Hours with more than 5% of total listening
+                threshold = len(df) * 0.05
+                listening_hours = active_hours[active_hours > threshold].index.tolist()
+                
+                if listening_hours:
+                    self.logger.info(f"🎯 Detected active listening hours: {sorted(listening_hours)}")
+                    return sorted(listening_hours)
             
-            self.logger.info(f"🎯 Detected active listening hours: {listening_hours}")
-            return listening_hours
+            return list(range(7, 24))  # Fallback
             
         except Exception as e:
             self.logger.warning(f"Could not detect listening patterns: {e}")
             return list(range(7, 24))  # Fallback
     
-    def setup_smart_schedules(self):
+    def setup_schedules(self):
         """Set up schedules based on detected listening patterns"""
+        schedule.clear()
+        
         current_hour = datetime.now().hour
         
         if current_hour in self.listening_hours:
             # Frequent checks during active hours
             schedule.every(15).minutes.do(self.run_tracker).tag('active')
-            self.logger.info("📈 Using frequent schedule (active hours)")
+            self.logger.info("📈 Using frequent schedule (active hours) - every 15 minutes")
         else:
             # Less frequent during inactive hours
             schedule.every(60).minutes.do(self.run_tracker).tag('inactive')
-            self.logger.info("📉 Using reduced schedule (inactive hours)")
+            self.logger.info("📉 Using reduced schedule (inactive hours) - every 60 minutes")
 
 # Command-line interface
 def main():
@@ -227,71 +237,15 @@ def main():
     else:
         print(f"⏰ Starting simple scheduler (every {args.interval} minutes)...")
         scheduler = SpotifyScheduler()
-        schedule.clear()
-        schedule.every(args.interval).minutes.do(scheduler.run_tracker)
+        # Override the default setup_schedules for custom interval
+        def custom_setup():
+            schedule.clear()
+            schedule.every(args.interval).minutes.do(scheduler.run_tracker).tag('custom')
+            scheduler.logger.info(f"📅 Custom schedule: every {args.interval} minutes")
+        
+        scheduler.setup_schedules = custom_setup
     
     scheduler.start()
 
 if __name__ == "__main__":
     main()
-
-# =============================================================================
-# WINDOWS SERVICE VERSION (Advanced)
-# =============================================================================
-
-# windows_service.py
-import win32serviceutil
-import win32service
-import win32event
-import servicemanager
-import time
-import sys
-import os
-
-class SpotifyTrackerService(win32serviceutil.ServiceFramework):
-    """Windows service for Spotify tracking"""
-    
-    _svc_name_ = "SpotifyTracker"
-    _svc_display_name_ = "Spotify Listening Tracker"
-    _svc_description_ = "Automatically tracks Spotify listening history"
-    
-    def __init__(self, args):
-        win32serviceutil.ServiceFramework.__init__(self, args)
-        self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
-        self.is_running = True
-        
-    def SvcStop(self):
-        self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-        win32event.SetEvent(self.hWaitStop)
-        self.is_running = False
-        
-    def SvcDoRun(self):
-        servicemanager.LogMsg(
-            servicemanager.EVENTLOG_INFORMATION_TYPE,
-            servicemanager.PYS_SERVICE_STARTED,
-            (self._svc_name_, '')
-        )
-        
-        # Change to script directory
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        os.chdir(script_dir)
-        
-        # Start the scheduler
-        scheduler = SpotifyScheduler()
-        scheduler.setup_schedules()
-        
-        while self.is_running:
-            schedule.run_pending()
-            
-            # Wait for stop signal or timeout
-            rc = win32event.WaitForSingleObject(self.hWaitStop, 60000)  # 60 seconds
-            if rc == win32event.WAIT_OBJECT_0:
-                break
-
-if __name__ == '__main__':
-    if len(sys.argv) == 1:
-        # Run as regular script
-        main()
-    else:
-        # Handle service installation
-        win32serviceutil.HandleCommandLine(SpotifyTrackerService)

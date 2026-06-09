@@ -60,8 +60,17 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
-
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == '--schedule':
+        # Import and run scheduler
+        from scheduler_detailed import SpotifyScheduler
+        print("🎵 Starting scheduled mode...")
+        scheduler = SpotifyScheduler()
+        scheduler.start()
+    else:
+        # Run normally (once)
+        main()
 
 #sp.user_playlist_create(user=user_id, name="Test Playlist", public=True)
 '''
