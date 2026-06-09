@@ -43,17 +43,10 @@ def main():
     sp = authenticate()
     user_id = sp.current_user()["id"]
 
-    #TrackLogger.create_header()
     track_logger.log_songs(sp)
-    #TrackLogger.del_all_duplicates()
     print('Logging the tracks - done ✅')
-    print()
 
-    find_repeat_songs.create_file()
-    find_repeat_songs.get_freq()
-    print('Frequency of songs aquired ✅')
-
-    create_on_repeat.create_playlist(sp,user_id)
+    create_on_repeat.create_playlist(sp, user_id)
 
 
 
