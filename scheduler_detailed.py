@@ -67,14 +67,11 @@ class SpotifyScheduler:
             self.handle_failure(e)
     
     def check_data_growth(self):
-        """Check if the tracking run actually added new data"""
-        try:
-            if os.path.exists(TRACK_LOG_FILE):
-                with open(TRACK_LOG_FILE, 'r', encoding='utf-8') as f:
-                    lines = len(f.readlines())
-                self.logger.info(f"📊 Current track count: {lines-1}")  # -1 for header
-        except Exception as e:
-            self.logger.warning(f"Could not check data growth: {e}")
+        from database import SpotifyDatabase
+        db = SpotifyDatabase()
+        conn = db.conn
+        count = conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+        self.logger.info(f"📊 Current track count: {count}")
     
     def handle_failure(self, error):
         """Handle failed runs - could send notifications, etc."""
@@ -156,44 +153,19 @@ class SmartSpotifyScheduler(SpotifyScheduler):
     
     def detect_listening_patterns(self):
         """Analyze existing data to determine when user typically listens"""
-        try:
-            if not os.path.exists(TRACK_LOG_FILE):
-                self.logger.info("📊 No existing data found, using default listening hours")
-                return list(range(7, 24))  # Default: 7 AM to 11 PM
-            
-            # Try to import pandas, but gracefully handle if not available
-            try:
-                import pandas as pd
-            except ImportError:
-                self.logger.warning("📊 Pandas not available for pattern detection, using defaults")
-                return list(range(7, 24))
-            
-            df = pd.read_csv(TRACK_LOG_FILE)
-            
-            if df.empty or len(df) < 10:  # Need some data for meaningful analysis
-                self.logger.info("📊 Not enough data for pattern analysis, using defaults")
-                return list(range(7, 24))
-            
-            # Convert time to hour (assuming Time column exists)
-            if 'Time' in df.columns:
-                df['hour'] = pd.to_datetime(df['Time'], format='%H:%M:%S', errors='coerce').dt.hour
-                
-                # Find hours with listening activity
-                active_hours = df['hour'].value_counts()
-                
-                # Hours with more than 5% of total listening
-                threshold = len(df) * 0.05
-                listening_hours = active_hours[active_hours > threshold].index.tolist()
-                
-                if listening_hours:
-                    self.logger.info(f"🎯 Detected active listening hours: {sorted(listening_hours)}")
-                    return sorted(listening_hours)
-            
-            return list(range(7, 24))  # Fallback
-            
-        except Exception as e:
-            self.logger.warning(f"Could not detect listening patterns: {e}")
-            return list(range(7, 24))  # Fallback
+        from database import SpotifyDatabase
+        import sqlite3
+        db = SpotifyDatabase()
+        rows = db.conn.execute("SELECT time_played FROM tracks").fetchall()
+        if len(rows) < 10:
+            return list(range(7, 24))
+        hours = [int(r[0].split(":")[0]) for r in rows if r[0]]
+        from collections import Counter
+        counts = Counter(hours)
+        threshold = len(rows) * 0.05
+        active = sorted([h for h, c in counts.items() if c > threshold])
+        return active or list(range(7, 24))
+        
     
     def setup_schedules(self):
         """Set up schedules based on detected listening patterns"""

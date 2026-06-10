@@ -40,14 +40,14 @@ def authenticate():
 
 
 def main():
-    sp = authenticate()
-    user_id = sp.current_user()["id"]
 
+    sp = authenticate()
+    if not sp:
+        return
+    user_id = sp.current_user()["id"]
     track_logger.log_songs(sp)
     print('Logging the tracks - done ✅')
-
     create_on_repeat.create_playlist(sp, user_id)
-
 
 
 if __name__ == '__main__':

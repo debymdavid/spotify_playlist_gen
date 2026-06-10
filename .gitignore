@@ -11,6 +11,7 @@ venv/
 ENV/
 env/
 .venv/
+run.sh
 
 # MacOS system files
 .DS_Store

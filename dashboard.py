@@ -5,6 +5,35 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 
+import subprocess
+import threading
+
+def run_main_script():
+    subprocess.run(["python", "main.py"], capture_output=True)
+
+# In the dashboard UI, after your KPI cards:
+st.markdown('<div class="section-header">Controls</div>', unsafe_allow_html=True)
+
+col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+
+with col_btn1:
+    if st.button("▶  Log Tracks Now", use_container_width=True):
+        with st.spinner("Logging tracks..."):
+            result = subprocess.run(
+                ["python3", "main.py"],
+                capture_output=True, text=True, cwd=str(Path(__file__).parent)
+            )
+
+        if result.returncode == 0:
+            st.success("Tracks logged!")
+            st.cache_data.clear()
+            st.rerun()
+
+with col_btn2:
+    if st.button("🔄  Refresh Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
 # ── Config ────────────────────────────────────────────────────────────────────
 DB_PATH = "spotify_data.db"
 
