@@ -14,9 +14,11 @@ LISTEN_THRESHOLD = 0.75
 def get_last_logged_timestamp(db):
     """Get the most recent played_at from the DB as a UTC unix timestamp in ms."""
     with db.get_connection() as conn:
-        row = conn.execute(
+        cursor = conn.cursor()
+        cursor.execute(
             "SELECT date_played, time_played FROM tracks ORDER BY date_played DESC, time_played DESC LIMIT 1"
-        ).fetchone()
+        )
+        row = cursor.fetchone()
 
     if not row:
         return None
@@ -80,9 +82,12 @@ def get_recent_songs(sp):
 
         # Get last stored local datetime for evaluating the final item
         with db.get_connection() as conn:
-            last_row = conn.execute(
+            cursor = conn.cursor()
+            cursor.execute(
                 "SELECT date_played, time_played FROM tracks ORDER BY date_played DESC, time_played DESC LIMIT 1"
-            ).fetchone()
+            )
+            last_row = cursor.fetchone()
+
 
         last_stored_local = None
         if last_row:

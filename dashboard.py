@@ -4,6 +4,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+import os 
+from dotenv import load_dotenv
+load_dotenv()
 
 import subprocess
 import threading
@@ -180,10 +183,14 @@ st.markdown(f"""
 # ── Data helpers ──────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_conn():
+    url = os.getenv('SUPABASE_DB_URL')
+    if url:
+        from sqlalchemy import create_engine
+        return create_engine(url)
     if not Path(DB_PATH).exists():
         return None
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    return conn
+    from sqlalchemy import create_engine
+    return create_engine(f"sqlite:///{DB_PATH}")
 
 @st.cache_data(ttl=60)
 def load_tracks():
@@ -226,16 +233,24 @@ def load_stats():
     conn = get_conn()
     if conn is None:
         return {}
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM tracks")
-    total = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(DISTINCT track_id) FROM tracks")
-    unique = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(DISTINCT artist_name) FROM tracks")
-    artists = cur.fetchone()[0]
-    cur.execute("SELECT MIN(date_played), MAX(date_played) FROM tracks")
-    dates = cur.fetchone()
-    return {"total": total, "unique": unique, "artists": artists, "from": dates[0], "to": dates[1]}
+    import pandas as pd
+    df = pd.read_sql_query("""
+        SELECT
+            COUNT(*) as total,
+            COUNT(DISTINCT track_id) as unique_tracks,
+            COUNT(DISTINCT artist_name) as artists,
+            MIN(date_played) as date_from,
+            MAX(date_played) as date_to
+        FROM tracks
+    """, conn)
+    row = df.iloc[0]
+    return {
+        "total":   int(row["total"]),
+        "unique":  int(row["unique_tracks"]),
+        "artists": int(row["artists"]),
+        "from":    str(row["date_from"]),
+        "to":      str(row["date_to"]),
+    }
 
 
 # ── Chart helpers ─────────────────────────────────────────────────────────────
@@ -399,7 +414,7 @@ for row in recent.itertuples():
         <div class="track-name">{name}</div>
         <div class="track-artist">{row.artist_name}</div>
       </div>
-      <span class="track-time">{row.time_played[:5]}  {row.date_played}</span>
+      <span class="track-time">{str(row.time_played)[:5]}  {row.date_played}</span>
     </div>"""
 st.markdown(html, unsafe_allow_html=True)
 

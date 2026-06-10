@@ -1,5 +1,12 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Database — use Supabase URL if set, otherwise fall back to local SQLite
+SUPABASE_DB_URL = os.getenv('SUPABASE_DB_URL')
+DATABASE_PATH   = 'spotify_data.db'   # only used if Supabase URL is absent
 
 # Database configuration
 DATABASE_PATH = 'spotify_data.db'
@@ -9,7 +16,4 @@ BACKUP_DIR = 'backups'
 Path(BACKUP_DIR).mkdir(exist_ok=True)
 
 LIMIT_SONGS = 50
-TRACK_LOG_FILE = 'track_log.csv'
-FREQ_LOG_FILE = 'freq_log.csv'
-ARTIST_LOG_FILE = 'artist_log.csv'
 PLAYLIST_SIZE = 30
