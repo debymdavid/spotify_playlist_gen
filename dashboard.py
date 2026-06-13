@@ -40,7 +40,7 @@ st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 html, body, [class*="css"], .stApp {{ font-family: 'Inter', sans-serif; background-color: {C['bg']}; color: {C['text']}; }}
-.block-container {{ padding: 2.2rem 2rem 2rem; max-width: 1400px; }}
+.block-container {{ padding: 1.8rem 2rem 2rem; max-width: 1400px; }}
 [data-testid="stSidebar"] {{ background: {C['surface']} !important; border-right: 1px solid {C['border']}; }}
 [data-testid="stSidebar"] .block-container {{ padding: 1.5rem 1rem; }}
 div[data-testid="metric-container"] {{ background: {C['card']}; border: 1px solid {C['border']}; border-radius: 14px; padding: 1.2rem 1.4rem; position: relative; overflow: hidden; }}
@@ -71,7 +71,22 @@ div[data-testid="metric-container"] div[data-testid="stMetricValue"] {{ color: {
 .artist-avatar {{ width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: {C['navy_dim']}; border: 2px solid {C['border']}; }}
 .artist-name {{ flex: 1; font-size: 0.88rem; font-weight: 500; color: {C['text']}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
 .artist-plays {{ color: {C['gold']}; font-size: 0.78rem; font-weight: 600; flex-shrink: 0; font-family: 'Space Grotesk', sans-serif; }}
-.stButton > button {{ background: linear-gradient(135deg, {C['maroon']}, {C['maroon2']}) !important; color: white !important; border: none !important; border-radius: 9px !important; font-weight: 600 !important; font-size: 0.82rem !important; padding: 0.5rem 1.1rem !important; letter-spacing: 0.03em !important; }}
+/* Sidebar buttons — maroon gradient */
+[data-testid="stSidebar"] .stButton > button {{
+  background: linear-gradient(135deg, {C['maroon']}, {C['maroon2']}) !important;
+  color: white !important; border: none !important; border-radius: 9px !important;
+  font-weight: 600 !important; font-size: 0.82rem !important;
+  padding: 0.5rem 1.1rem !important; letter-spacing: 0.03em !important;
+}}
+/* Artist x buttons — completely hidden, zero size */
+[data-testid="stMain"] .stButton > button[data-testid^="art_"],
+[data-testid="stMain"] .stButton > button:has(> div > p:only-child) {{
+  visibility: hidden !important;
+  height: 0 !important; min-height: 0 !important;
+  padding: 0 !important; margin: 0 !important;
+  border: none !important; background: none !important;
+  position: absolute !important;
+}}
 hr {{ border-color: {C['border']} !important; margin: 1rem 0 !important; }}
 #MainMenu, footer {{ visibility: hidden; }}
 .stDeployButton {{ display: none; }}
@@ -84,13 +99,19 @@ button[kind="header"] {{ visibility: visible !important; }}
 
 @st.cache_resource
 def get_conn():
+    from sqlalchemy import create_engine, text
     url = os.getenv('SUPABASE_DB_URL')
     if url:
-        from sqlalchemy import create_engine
-        return create_engine(url)
+        try:
+            engine = create_engine(url, connect_args={"connect_timeout": 5})
+            with engine.connect() as c:
+                c.execute(text("SELECT 1"))
+            return engine
+        except Exception as e:
+            st.warning(f"⚠️ Supabase unreachable — using local database. ({type(e).__name__})")
     if Path(DB_PATH).exists():
-        from sqlalchemy import create_engine
         return create_engine(f"sqlite:///{DB_PATH}")
+    st.error("No database found. Make sure spotify_data.db exists or Supabase is reachable.")
     return None
 
 @st.cache_resource
@@ -410,14 +431,11 @@ elif page == "Top Charts":
         filtered = filtered.merge(all_songs_ranked[["track_id","rank"]], on="track_id", how="left")
         filtered = filtered.reset_index(drop=True)
 
-        count_label = f"{len(filtered)} results" if (tc_search or tc_min > 1) else f"{len(filtered)} songs"
-        st.caption(count_label)
-
         if filtered.empty:
             st.info("No songs match your search.")
         else:
             rows_html = ''
-            for _, row in filtered.head(50).iterrows():
+            for _, row in filtered.head(200).iterrows():
                 img = get_track_image(row["track_id"])
                 art = f'<img src="{img}" style="width:34px;height:34px;border-radius:6px;object-fit:cover;">' if img else '<div class="rank-art-ph">🎵</div>'
                 rank_num = int(row["rank"]) if not pd.isna(row.get("rank", float("nan"))) else "—"
@@ -430,7 +448,7 @@ elif page == "Top Charts":
                   </td>
                   <td class="rank-plays">{int(row["plays"])}</td>
                 </tr>'''
-            st.markdown(f'<div class="panel" style="padding:0.5rem 0.6rem;max-height:660px;overflow-y:auto;"><table class="rank-table">{rows_html}</table></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="panel" style="padding:0.5rem 0.6rem;height:880px;overflow-y:auto;"><table class="rank-table">{rows_html}</table></div>', unsafe_allow_html=True)
 
     # ── RIGHT: Bar chart (always top 15, unaffected by search) + top 5 artists
     with col_right:
@@ -439,8 +457,8 @@ elif page == "Top Charts":
         st.plotly_chart(songs_bar(top_songs), use_container_width=True, config={"displayModeBar": False})
         st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="sec-title">🎤 Top 5 Artists</div>', unsafe_allow_html=True)
         top5_artists = load_all_artists().head(5)
+        st.markdown('<div class="sec-title">🎤 Top 5 Artists</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel" style="padding:0.8rem 1rem;">', unsafe_allow_html=True)
         for row in top5_artists.itertuples():
             aimg = get_artist_image(row.artist_name)
@@ -550,7 +568,6 @@ elif page == "Artists":
                 st.markdown(f'<div class="panel" style="padding:0.5rem 0.6rem;max-height:460px;overflow-y:auto;"><table class="rank-table">{rows_html}</table></div>', unsafe_allow_html=True)
 
             with d2:
-                st.markdown('<div class="sec-title">📊 Play Distribution</div>', unsafe_allow_html=True)
                 d = artist_songs.head(12).copy().iloc[::-1]
                 d["label"] = d["track_name"].apply(lambda x: x[:24]+"…" if len(x)>24 else x)
                 fig = go.Figure(go.Bar(
@@ -568,39 +585,95 @@ elif page == "Artists":
                     yaxis=dict(showgrid=False, tickfont=dict(size=10, color=C["text"]), automargin=True),
                     bargap=0.28, showlegend=False,
                 )
+                st.markdown('<div class="sec-title">📊 Play Distribution</div>', unsafe_allow_html=True)
                 st.markdown('<div class="panel">', unsafe_allow_html=True)
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
                 st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown(f'<div style="height:1px;background:{C["border"]};margin:1.5rem 0 1rem;"></div>', unsafe_allow_html=True)
 
-    # ── Artist grid — click View to select ────────────────────────────────────
-    st.markdown(f'<div class="sec-title">🎤 All Artists ({len(ar_filtered)})</div>', unsafe_allow_html=True)
+    # ── Artist grid — pure st.button styled as cards via CSS ───────────────
+    sec_row_l, sec_row_r = st.columns([3, 1], gap="medium")
+    with sec_row_l:
+        st.markdown(f'<div class="sec-title">🎤 All Artists ({len(ar_filtered)})</div>', unsafe_allow_html=True)
+    with sec_row_r:
+        ar_limit = st.selectbox("Show", [50, 100, 200], index=0, label_visibility="collapsed", key="ar_limit")
+
     if ar_filtered.empty:
         st.info("No artists match your search.")
     else:
+        # Build per-button CSS — one rule per artist card
+        css_rules = []
+        for idx, row in enumerate(ar_filtered.head(int(ar_limit)).itertuples()):
+            is_sel  = (row.artist_name == selected)
+            aimg    = get_artist_image(row.artist_name)
+            img_url = aimg if aimg else ""
+            bg_col  = C["maroon_dim"] if is_sel else C["card"]
+            bd_col  = C["maroon"]     if is_sel else C["border"]
+            fw      = "600"           if is_sel else "400"
+
+            css_rules.append(f"""
+              /* card {idx} */
+              div[data-testid="stButton"]:nth-of-type({idx+1}) button,
+              button[key="art_{idx}"] {{
+                background: {bg_col} !important;
+                border: 1px solid {bd_col} !important;
+                border-radius: 12px !important;
+                padding: 0.55rem 0.85rem !important;
+                text-align: left !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: 0 !important;
+                color: {C["text"]} !important;
+                font-size: 0 !important;        /* hide default label text */
+                line-height: 0 !important;
+                margin-bottom: 0.3rem !important;
+                transition: border-color 0.15s !important;
+              }}
+              div[data-testid="stButton"]:nth-of-type({idx+1}) button:hover {{
+                border-color: {C["sub"]} !important;
+                background: {C["card2"] if not is_sel else C["maroon_dim"]} !important;
+              }}
+            """)
+
+        # Emit all CSS at once
+        st.markdown(f"<style>{''.join(css_rules)}</style>", unsafe_allow_html=True)
+
         cols = st.columns(2, gap="medium")
-        for idx, row in enumerate(ar_filtered.itertuples()):
+        for idx, row in enumerate(ar_filtered.head(int(ar_limit)).itertuples()):
             with cols[idx % 2]:
-                aimg = get_artist_image(row.artist_name)
-                ihtml = f'<img class="artist-avatar" style="width:42px;height:42px;" src="{aimg}">' if aimg else '<div class="artist-avatar" style="width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🎤</div>'
-                is_sel = (row.artist_name == selected)
-                bg = f"background:{C['maroon_dim']};border:1px solid {C['maroon']};" if is_sel else f"border:1px solid {C['border']};"
-                card_col, btn_col = st.columns([5, 1], gap="small")
-                with card_col:
-                    st.markdown(f"""<div style="display:flex;align-items:center;gap:0.75rem;padding:0.55rem 0.7rem;
-                      border-radius:9px;margin-bottom:0.1rem;{bg}">
-                      {ihtml}
-                      <div style="flex:1;min-width:0;">
-                        <div class="artist-name">{row.artist_name}</div>
-                        <div style="font-size:0.72rem;color:{C['muted']};">{row.unique_tracks} tracks · last {row.last_played}</div>
-                      </div>
-                      <span class="artist-plays">{row.plays}</span>
-                    </div>""", unsafe_allow_html=True)
-                with btn_col:
-                    if st.button("View", key=f"sel_{idx}"):
-                        st.session_state["selected_artist"] = row.artist_name
-                        st.rerun()
+                is_sel  = (row.artist_name == selected)
+                aimg    = get_artist_image(row.artist_name)
+                img_tag = f'<img style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid {C["maroon3"] if is_sel else C["border"]};" src="{aimg}">' if aimg else f'<div style="width:40px;height:40px;border-radius:50%;background:{C["navy_dim"]};border:2px solid {C["border"]};display:flex;align-items:center;justify-content:center;font-size:1rem;">🎤</div>'
+                dot     = f'<span style="color:{C["maroon3"]};font-size:0.65rem;margin-left:auto;padding-left:0.5rem;flex-shrink:0;">●</span>' if is_sel else ''
+                fw      = "600" if is_sel else "500"
+
+                # The button label is HTML rendered via markdown-in-button trick:
+                # We render a flex card as the button label using st.markdown BEFORE
+                # the button, then use negative margin to visually merge them.
+                # Since font-size:0 hides the button text, only our HTML card shows.
+                st.markdown(f'''
+                <div style="display:flex;align-items:center;gap:0.75rem;
+                  padding:0.55rem 0.85rem;border-radius:12px;
+                  background:{"#4a0018" if is_sel else C["card"]};
+                  border:1px solid {"#8b0000" if is_sel else C["border"]};
+                  margin-bottom:0.3rem;pointer-events:none;">
+                  {img_tag}
+                  <div style="flex:1;min-width:0;">
+                    <div style="color:{C["text"]};font-size:0.88rem;font-weight:{fw};
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{row.artist_name}</div>
+                    <div style="font-size:0.72rem;color:{C["muted"]};margin-top:2px;">
+                      {row.plays} plays · {row.unique_tracks} tracks · last {row.last_played}</div>
+                  </div>{dot}
+                </div>''', unsafe_allow_html=True)
+
+                # Invisible button sits right below card; negative margin pulls it up
+                # so it overlaps the card div and captures clicks
+                st.markdown('<div style="height:0;overflow:hidden;position:absolute;">', unsafe_allow_html=True)
+                if st.button("x", key=f"art_{idx}", use_container_width=True):
+                    st.session_state["selected_artist"] = None if is_sel else row.artist_name
+                    st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
 elif page == "Recent Plays":
     st.markdown(f'<div style="font-family:Space Grotesk,sans-serif;font-size:1.6rem;font-weight:800;color:{C["text"]};letter-spacing:-0.02em;margin-bottom:0.3rem;">Recent Plays</div><div style="font-size:0.82rem;color:{C["sub"]};margin-bottom:1.5rem;">Your play history</div>', unsafe_allow_html=True)
@@ -658,7 +731,10 @@ elif page == "Activity":
     # Row 2: daily trend full width, taller
     st.markdown('<div class="sec-title">📅 Daily Plays — last 30 days</div>', unsafe_allow_html=True)
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.plotly_chart(daily_area_tall(daily), use_container_width=True, config={"displayModeBar": False})
+    if not daily.empty and "date_played" in daily.columns and "plays" in daily.columns:
+        st.plotly_chart(daily_area_tall(daily), use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.caption("No daily data available yet.")
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
